@@ -10,6 +10,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.ResourceAccessException;
 
+import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpTimeoutException;
 import java.time.Instant;
 import java.util.List;
 
@@ -95,13 +97,38 @@ class DeveloperServiceTests {
 	}
 
 	@Test
-	void translatesGitHubConnectionFailure() {
+	void doesNotClassifyTimeoutFromMessageAlone() {
 		when(gitHubClient.getUser("octocat"))
 				.thenThrow(new ResourceAccessException("Connection timed out"));
 
 		assertThatThrownBy(() -> developerService.getProfile("octocat"))
 				.isInstanceOf(GitHubUnavailableException.class)
 				.hasMessage("GitHub API is temporarily unavailable");
+	}
+
+	@Test
+	void translatesGitHubProfileTimeout() {
+		ResourceAccessException timeout = new ResourceAccessException(
+				"I/O error", new HttpConnectTimeoutException("connect timed out")
+		);
+		when(gitHubClient.getUser("octocat")).thenThrow(timeout);
+
+		assertThatThrownBy(() -> developerService.getProfile("octocat"))
+				.isInstanceOf(GitHubTimeoutException.class)
+				.hasMessage("GitHub API did not respond in time");
+	}
+
+	@Test
+	void translatesGitHubRepositoryTimeout() {
+		ResourceAccessException timeout = new ResourceAccessException(
+				"I/O error", new HttpTimeoutException("request timed out")
+		);
+		when(gitHubClient.getRepositories("octocat", 1, 20, "updated", "desc"))
+				.thenThrow(timeout);
+
+		assertThatThrownBy(() -> developerService.getRepositories("octocat", 1, 20))
+				.isInstanceOf(GitHubTimeoutException.class)
+				.hasMessage("GitHub API did not respond in time");
 	}
 
 	@Test

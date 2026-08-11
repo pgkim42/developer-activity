@@ -14,6 +14,10 @@ class DeveloperExceptionHandler {
 		return problem(HttpStatus.NOT_FOUND, "Developer not found", exception.getMessage());
 	}
 
+	@ExceptionHandler(GitHubTimeoutException.class)
+	ProblemDetail handleTimeout(GitHubTimeoutException exception) {
+		return problem(HttpStatus.GATEWAY_TIMEOUT, "Upstream service timed out", exception.getMessage());
+	}
 	@ExceptionHandler(GitHubUnavailableException.class)
 	ProblemDetail handleUnavailable(GitHubUnavailableException exception) {
 		return problem(HttpStatus.BAD_GATEWAY, "Upstream service unavailable", exception.getMessage());

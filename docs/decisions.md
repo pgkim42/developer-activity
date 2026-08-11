@@ -54,6 +54,7 @@ GitHub API의 경로와 쿼리 파라미터를 명확한 계약으로 표현하�
 - HTTP 계약은 `MockRestServiceServer`로 URI, 헤더, JSON 역직렬화를 검증합니다.
 - 서비스 정책은 Mockito로 GitHub 클라이언트를 대체해 검증합니다.
 - 공개 API는 MockMvc로 상태 코드, 입력 검증, 응답 형식을 검증합니다.
+- timeout은 로컬 HTTP 서버의 지연 응답으로 실제 HTTP 클라이언트 설정까지 통합 검증합니다.
 - 실제 GitHub 연결은 필요할 때 수동 smoke test로 확인합니다.
 
 ### 결과
@@ -73,12 +74,13 @@ GitHub 클라이언트의 예외를 그대로 노출하면 공개 API가 외부 
 
 - 잘못된 요청 값은 `400 Bad Request`로 반환합니다.
 - GitHub에 사용자가 없으면 `404 Not Found`로 반환합니다.
-- GitHub의 기타 오류와 연결 장애는 `502 Bad Gateway`로 반환합니다.
+- GitHub의 기타 오류와 timeout이 아닌 연결 장애는 `502 Bad Gateway`로 반환합니다.
+- GitHub의 연결 또는 응답 timeout은 `504 Gateway Timeout`으로 반환합니다.
 - 오류 본문은 `ProblemDetail` 형식을 사용합니다.
 
 ### 결과
 
-클라이언트는 일관된 오류 형식을 받습니다. timeout을 별도로 설정하는 단계에서는 시간 초과를 `504 Gateway Timeout`으로 구분할지 재검토합니다.
+클라이언트는 외부 클라이언트 구현과 무관한 일관된 오류 형식을 받습니다. timeout 여부는 예외 메시지가 아니라 표준 timeout 예외 타입과 cause chain으로 판별합니다.
 
 ## D-005. 저장소 목록은 페이지 단위로 전달한다
 
@@ -96,6 +98,30 @@ GitHub 클라이언트의 예외를 그대로 노출하면 공개 API가 외부 
 ### 결과
 
 호출 비용과 응답 크기가 예측 가능합니다. 여러 페이지를 합친 활동 요약이 필요해질 때 별도의 집계 정책과 Rate Limit 영향을 검토합니다.
+
+## D-006. 모든 외부 HTTP 호출에 명시적인 timeout을 적용한다
+
+- 상태: 채택
+- 날짜: 2026-08-11
+
+### 맥락
+
+외부 API가 응답하지 않으면 애플리케이션 요청 처리 자원이 장시간 점유될 수 있습니다. 호출자가 일반적인 외부 장애와 시간 초과를 구분할 수 있어야 합니다.
+
+### 결정
+
+Spring Boot 4.1의 공통 HTTP 클라이언트 설정으로 연결 timeout 2초와 응답 timeout 5초를 적용합니다. 현재 auto-configured `RestClient.Builder`를 사용하는 모든 외부 호출에 같은 기본값이 적용됩니다.
+
+시간 초과는 `504 Gateway Timeout`, 그 밖의 연결 장애는 `502 Bad Gateway`로 변환합니다. timeout은 예외 메시지가 아니라 `HttpTimeoutException`, `SocketTimeoutException`이 포함된 cause chain으로 판별합니다.
+
+retry는 함께 도입하지 않습니다. 재시도는 호출 횟수, 지연 시간, GitHub Rate Limit을 증가시키므로 실제 실패와 지연을 관측한 뒤 별도 정책으로 결정합니다.
+
+### 결과
+
+- 외부 API가 느릴 때 요청이 무기한 대기하지 않습니다.
+- 호출자는 시간 초과와 다른 외부 장애를 구분할 수 있습니다.
+- 다른 외부 Provider에 서로 다른 timeout이 필요해지면 공통 설정 대신 HTTP Service 그룹별 설정을 재검토합니다.
+- 멱등성, backoff, 재시도 대상 상태가 정의되기 전까지 retry를 추가하지 않습니다.
 
 ## 기록 원칙
 

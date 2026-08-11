@@ -17,7 +17,7 @@ GET /developers/{username}
 GET /developers/{username}/repositories?page=1&size=20
 ```
 
-현재 GitHub 사용자 프로필과 저장소 목록 조회를 지원합니다. 저장소는 최근 업데이트 순으로 조회하며 `page`는 1 이상, `size`는 1~100을 허용합니다. 존재하지 않는 사용자는 `404`, GitHub API 장애는 `502`의 `ProblemDetail` 응답으로 변환합니다.
+현재 GitHub 사용자 프로필과 저장소 목록 조회를 지원합니다. 저장소는 최근 업데이트 순으로 조회하며 `page`는 1 이상, `size`는 1~100을 허용합니다. 존재하지 않는 사용자는 `404`, GitHub API 장애는 `502`, 응답 시간 초과는 `504`의 `ProblemDetail` 응답으로 변환합니다.
 
 ## 해결하려는 문제
 
@@ -86,7 +86,7 @@ flowchart LR
 
 1. **완료:** GitHub 사용자 조회 API와 HTTP Interface 클라이언트 구현
 2. **완료:** 페이지네이션을 지원하는 GitHub 저장소 조회
-3. timeout·retry·부분 실패 정책과 테스트 작성
+3. **완료:** 설정 가능한 외부 API timeout과 `504` 응답 처리
 4. 캐시·ETag·Rate Limit 처리
 5. API 버전 관리와 `ProblemDetail` 오류 규격 적용
 6. 메트릭·트레이싱을 통한 외부 호출 관측
@@ -108,6 +108,15 @@ $env:GITHUB_TOKEN="your-token"
 ```
 
 토큰 없이 실행하려면 환경변수를 설정하지 않은 상태로 애플리케이션을 실행하면 됩니다.
+
+외부 HTTP 클라이언트에는 Spring Boot의 공통 timeout 설정을 적용합니다.
+
+```properties
+spring.http.clients.connect-timeout=2s
+spring.http.clients.read-timeout=5s
+```
+
+GitHub가 제한 시간 안에 응답하지 않으면 `504 Gateway Timeout`을 반환합니다. timeout이 아닌 연결 장애와 GitHub의 기타 오류는 `502 Bad Gateway`로 반환합니다. 두 값은 `SPRING_HTTP_CLIENTS_CONNECT_TIMEOUT`, `SPRING_HTTP_CLIENTS_READ_TIMEOUT` 환경변수로 재정의할 수 있습니다.
 
 ```bash
 # Windows
