@@ -139,6 +139,10 @@ Actuator가 활성화되어 있으므로 애플리케이션 실행 후 상태를
 GET http://localhost:8080/actuator/health
 ```
 
+## 문서
+
+- [설계 결정 기록](docs/decisions.md): 주요 기술 선택의 배경, 결과, 재검토 조건
+
 ## 원칙
 
 - 실패 시나리오를 먼저 정의하고 테스트한다.
