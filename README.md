@@ -13,13 +13,10 @@ GitHub 등 여러 개발 플랫폼에 흩어진 활동 데이터를 수집해 �
 단순히 외부 API를 감싸는 데서 끝나지 않습니다. 느린 응답, 호출 제한, 일시적 장애, 부분 실패처럼 실무에서 발생하는 문제를 다루며 **Spring Boot 4와 Spring Framework 7의 기능을 깊게 학습**하는 것이 목적입니다.
 
 ```http
-GET /developers/{username}/summary
-GET /developers/{username}/repositories
-GET /developers/{username}/activity
-GET /developers/{username}/languages
+GET /developers/{username}
 ```
 
-> 현재는 Spring Initializr 기반의 프로젝트 골격만 구성된 상태입니다. 위 API는 개발 목표이며 아직 구현되지 않았습니다.
+현재 GitHub 사용자 프로필 조회를 지원합니다. 존재하지 않는 사용자는 `404`, GitHub API 장애는 `502`의 `ProblemDetail` 응답으로 변환합니다. 저장소·활동·언어 통계 API는 이후 단계에서 추가합니다.
 
 ## 해결하려는 문제
 
@@ -68,6 +65,8 @@ flowchart LR
 - Java 21
 - Spring Boot 4.1.0
 - Spring Web MVC
+- Spring HTTP Interface / RestClient
+- Jackson 3
 - Bean Validation
 - Spring Boot Actuator
 - Lombok
@@ -84,8 +83,8 @@ flowchart LR
 
 ## 개발 단계
 
-1. GitHub 사용자·저장소 조회 API 구현
-2. HTTP Interface 기반 외부 API 클라이언트 분리
+1. **완료:** GitHub 사용자 조회 API와 HTTP Interface 클라이언트 구현
+2. GitHub 저장소 조회 및 활동 데이터 조합
 3. timeout·retry·부분 실패 정책과 테스트 작성
 4. 캐시·ETag·Rate Limit 처리
 5. API 버전 관리와 `ProblemDetail` 오류 규격 적용
