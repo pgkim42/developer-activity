@@ -14,9 +14,10 @@ GitHub 등 여러 개발 플랫폼에 흩어진 활동 데이터를 수집해 �
 
 ```http
 GET /developers/{username}
+GET /developers/{username}/repositories?page=1&size=20
 ```
 
-현재 GitHub 사용자 프로필 조회를 지원합니다. 존재하지 않는 사용자는 `404`, GitHub API 장애는 `502`의 `ProblemDetail` 응답으로 변환합니다. 저장소·활동·언어 통계 API는 이후 단계에서 추가합니다.
+현재 GitHub 사용자 프로필과 저장소 목록 조회를 지원합니다. 저장소는 최근 업데이트 순으로 조회하며 `page`는 1 이상, `size`는 1~100을 허용합니다. 존재하지 않는 사용자는 `404`, GitHub API 장애는 `502`의 `ProblemDetail` 응답으로 변환합니다.
 
 ## 해결하려는 문제
 
@@ -84,7 +85,7 @@ flowchart LR
 ## 개발 단계
 
 1. **완료:** GitHub 사용자 조회 API와 HTTP Interface 클라이언트 구현
-2. GitHub 저장소 조회 및 활동 데이터 조합
+2. **완료:** 페이지네이션을 지원하는 GitHub 저장소 조회
 3. timeout·retry·부분 실패 정책과 테스트 작성
 4. 캐시·ETag·Rate Limit 처리
 5. API 버전 관리와 `ProblemDetail` 오류 규격 적용
@@ -99,12 +100,27 @@ flowchart LR
 
 별도 Gradle 설치는 필요하지 않습니다.
 
+GitHub 토큰은 선택 사항입니다. 토큰을 사용하면 GitHub API의 인증된 요청 한도가 적용됩니다. 토큰은 설정 파일에 기록하지 않고 환경변수로 전달합니다.
+
+```powershell
+$env:GITHUB_TOKEN="your-token"
+.\gradlew.bat bootRun
+```
+
+토큰 없이 실행하려면 환경변수를 설정하지 않은 상태로 애플리케이션을 실행하면 됩니다.
+
 ```bash
 # Windows
 ./gradlew.bat bootRun
 
 # macOS / Linux
 ./gradlew bootRun
+```
+
+저장소 조회 예시:
+
+```bash
+curl "http://localhost:8080/developers/octocat/repositories?page=1&size=20"
 ```
 
 기본 테스트 실행:

@@ -1,12 +1,17 @@
 package com.example.developeractivity.developer;
 
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 @Validated
 @RestController
@@ -26,5 +31,16 @@ class DeveloperController {
 			String username
 	) {
 		return developerService.getProfile(username);
+	}
+
+	@GetMapping("/{username}/repositories")
+	List<DeveloperRepository> getRepositories(
+			@PathVariable
+			@Pattern(regexp = GITHUB_USERNAME_PATTERN, message = "must be a valid GitHub username")
+			String username,
+			@RequestParam(defaultValue = "1") @Min(1) int page,
+			@RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
+	) {
+		return developerService.getRepositories(username, page, size);
 	}
 }
