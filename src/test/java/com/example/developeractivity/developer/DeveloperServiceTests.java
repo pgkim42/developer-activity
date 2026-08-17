@@ -12,18 +12,25 @@ import org.springframework.web.client.ResourceAccessException;
 
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class DeveloperServiceTests {
 
 	@Mock
 	private GitHubClient gitHubClient;
+
+	@Mock
+	private DeveloperCache cache;
 
 	@InjectMocks
 	private DeveloperService developerService;
@@ -42,6 +49,60 @@ class DeveloperServiceTests {
 				"octocat", "The Octocat", "https://github.com/octocat",
 				"https://avatars.githubusercontent.com/u/583231", 8, 17_905
 		));
+	}
+
+	@Test
+	void returnsFreshlyCachedProfileWithoutCallingGitHub() {
+		DeveloperProfile cached = new DeveloperProfile(
+				"octocat", "The Octocat", "https://github.com/octocat",
+				"https://avatars.githubusercontent.com/u/583231", 8, 17_905
+		);
+		when(cache.fresh("profile:octocat")).thenReturn(cached);
+
+		assertThat(developerService.getProfile("octocat")).isEqualTo(cached);
+
+		verifyNoInteractions(gitHubClient);
+	}
+
+	@Test
+	void servesStaleProfileWhenGitHubIsUnavailable() {
+		DeveloperProfile cached = new DeveloperProfile(
+				"octocat", "The Octocat", "https://github.com/octocat",
+				"https://avatars.githubusercontent.com/u/583231", 8, 17_905
+		);
+		when(cache.stale("profile:octocat")).thenReturn(cached);
+		when(gitHubClient.getUser("octocat"))
+				.thenThrow(new ResourceAccessException("Connection failed"));
+
+		assertThat(developerService.getProfile("octocat")).isEqualTo(cached);
+	}
+
+	@Test
+	void doesNotServeStaleProfileWhenDeveloperDoesNotExist() {
+		DeveloperProfile cached = new DeveloperProfile(
+				"octocat", "The Octocat", "https://github.com/octocat",
+				"https://avatars.githubusercontent.com/u/583231", 8, 17_905
+		);
+		when(cache.stale("profile:missing-user")).thenReturn(cached);
+		HttpClientErrorException notFound = HttpClientErrorException.create(
+				HttpStatus.NOT_FOUND, "Not Found", HttpHeaders.EMPTY, new byte[0], null
+		);
+		when(gitHubClient.getUser("missing-user")).thenThrow(notFound);
+
+		assertThatThrownBy(() -> developerService.getProfile("missing-user"))
+				.isInstanceOf(DeveloperNotFoundException.class);
+	}
+
+	@Test
+	void translatesGitHubTooManyRequests() {
+		HttpClientErrorException limited = HttpClientErrorException.create(
+				HttpStatus.TOO_MANY_REQUESTS, "Too Many Requests",
+				HttpHeaders.EMPTY, new byte[0], null
+		);
+		when(gitHubClient.getUser("octocat")).thenThrow(limited);
+
+		assertThatThrownBy(() -> developerService.getProfile("octocat"))
+				.isInstanceOf(GitHubRateLimitException.class);
 	}
 
 	@Test
@@ -69,6 +130,45 @@ class DeveloperServiceTests {
 				"https://github.com/octocat/Spoon-Knife",
 				Instant.parse("2026-08-01T12:30:00Z")
 		));
+	}
+
+	@Test
+	void mapsGitHubActivitiesToPublicResponse() {
+		when(gitHubClient.getEvents("octocat", 1, 20)).thenReturn(List.of(
+				new GitHubEventResponse(
+						"1", "PushEvent", new GitHubEventRepository("octocat/Hello-World"),
+						Instant.parse("2026-08-16T12:30:00Z")
+				)
+		));
+
+		assertThat(developerService.getActivities("octocat", 1, 20))
+				.containsExactly(new DeveloperActivity(
+						"PushEvent",
+						"octocat/Hello-World",
+						"Pushed commits to octocat/Hello-World",
+						Instant.parse("2026-08-16T12:30:00Z")
+				));
+	}
+
+	@Test
+	void summarizesRecentActivitiesByTypeAndRepository() {
+		when(gitHubClient.getEvents("octocat", 1, 100)).thenReturn(List.of(
+				new GitHubEventResponse(
+						"1", "PushEvent", new GitHubEventRepository("octocat/Hello-World"),
+						Instant.now().minus(Duration.ofDays(2))
+				),
+				new GitHubEventResponse(
+						"2", "IssuesEvent", new GitHubEventRepository("octocat/Hello-World"),
+						Instant.now().minus(Duration.ofDays(3))
+				)
+		));
+
+		assertThat(developerService.getActivitySummary("octocat"))
+				.isEqualTo(new DeveloperActivitySummary(
+						2,
+						Map.of("PushEvent", 1, "IssuesEvent", 1),
+						List.of(new RepositoryActivityCount("octocat/Hello-World", 2))
+				));
 	}
 
 	@Test

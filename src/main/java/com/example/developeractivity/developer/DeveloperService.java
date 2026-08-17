@@ -12,7 +12,11 @@ import java.time.Instant;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpTimeoutException;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.function.Supplier;
+import java.util.Comparator;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -76,6 +80,68 @@ class DeveloperService {
 			}
 			throw exception;
 		}
+	}
+
+	List<DeveloperActivity> getActivities(String username, int page, int size) {
+		String key = "activities:" + username + ":" + page + ":" + size;
+		@SuppressWarnings("unchecked")
+		List<DeveloperActivity> fresh = cache == null
+				? null
+				: (List<DeveloperActivity>) cache.fresh(key);
+		if (fresh != null) {
+			count("cache.hit");
+			return fresh;
+		}
+		try {
+			List<DeveloperActivity> activities = callGitHub(
+					username,
+					() -> gitHubClient.getEvents(username, page, size)
+							.stream()
+							.map(DeveloperActivity::from)
+							.toList()
+			);
+			if (cache != null) {
+				cache.put(key, activities);
+			}
+			return activities;
+		} catch (RuntimeException exception) {
+			@SuppressWarnings("unchecked")
+			List<DeveloperActivity> stale = cache == null
+					? null
+					: (List<DeveloperActivity>) cache.stale(key);
+			if (stale != null && isUpstreamFailure(exception)) {
+				count("cache.stale");
+				return stale;
+			}
+			throw exception;
+		}
+	}
+
+	DeveloperActivitySummary getActivitySummary(String username) {
+		Instant since = Instant.now().minus(Duration.ofDays(30));
+		List<DeveloperActivity> activities = getActivities(username, 1, 100).stream()
+				.filter(activity -> activity.occurredAt() != null)
+				.filter(activity -> !activity.occurredAt().isBefore(since))
+				.toList();
+
+		Map<String, Integer> typeCounts = new LinkedHashMap<>();
+		activities.forEach(activity ->
+				typeCounts.merge(activity.type(), 1, Integer::sum));
+
+		List<RepositoryActivityCount> repositories = activities.stream()
+				.filter(activity -> activity.repository() != null)
+				.collect(Collectors.groupingBy(
+						DeveloperActivity::repository,
+						Collectors.summingInt(activity -> 1)
+				))
+				.entrySet()
+				.stream()
+				.sorted(Map.Entry.<String, Integer>comparingByValue(Comparator.reverseOrder())
+						.thenComparing(Map.Entry::getKey))
+				.map(entry -> new RepositoryActivityCount(entry.getKey(), entry.getValue()))
+				.toList();
+
+		return new DeveloperActivitySummary(activities.size(), typeCounts, repositories);
 	}
 
 	private <T> T callGitHub(String username, Supplier<T> request) {

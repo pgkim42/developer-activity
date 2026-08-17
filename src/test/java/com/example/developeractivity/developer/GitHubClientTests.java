@@ -86,4 +86,32 @@ class GitHubClientTests {
 		));
 		server.verify();
 	}
+
+	@Test
+	void requestsAndDeserializesActivities() {
+		RestClient.Builder builder = RestClient.builder();
+		MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+		GitHubClient client = new GitHubClientConfig().githubClient(builder, "https://api.github.test", "");
+		server.expect(once(), requestTo(
+						"https://api.github.test/users/octocat/events?page=1&per_page=20"
+				))
+				.andRespond(withSuccess("""
+						[
+						  {
+						    "id": "1",
+						    "type": "PushEvent",
+						    "repo": {"name": "octocat/Hello-World"},
+						    "created_at": "2026-08-15T12:30:00Z"
+						  }
+						]
+						""", MediaType.APPLICATION_JSON));
+
+		List<GitHubEventResponse> activities = client.getEvents("octocat", 1, 20);
+
+		assertThat(activities).containsExactly(new GitHubEventResponse(
+				"1", "PushEvent", new GitHubEventRepository("octocat/Hello-World"),
+				Instant.parse("2026-08-15T12:30:00Z")
+		));
+		server.verify();
+	}
 }

@@ -52,6 +52,30 @@ class DeveloperController {
 		return conditionalResponse(repositories, ifNoneMatch);
 	}
 
+	@GetMapping("/{username}/activities")
+	ResponseEntity<List<DeveloperActivity>> getActivities(
+			@PathVariable
+			@Pattern(regexp = GITHUB_USERNAME_PATTERN, message = "must be a valid GitHub username")
+			String username,
+			@RequestParam(defaultValue = "1") @Min(1) int page,
+			@RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
+			@RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch
+	) {
+		List<DeveloperActivity> activities = developerService.getActivities(username, page, size);
+		return conditionalResponse(activities, ifNoneMatch);
+	}
+
+	@GetMapping("/{username}/activity-summary")
+	ResponseEntity<DeveloperActivitySummary> getActivitySummary(
+			@PathVariable
+			@Pattern(regexp = GITHUB_USERNAME_PATTERN, message = "must be a valid GitHub username")
+			String username,
+			@RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch
+	) {
+		DeveloperActivitySummary summary = developerService.getActivitySummary(username);
+		return conditionalResponse(summary, ifNoneMatch);
+	}
+
 	private <T> ResponseEntity<T> conditionalResponse(T body, String ifNoneMatch) {
 		String etag = "\"" + Integer.toHexString(body.hashCode()) + "\"";
 		if (etag.equals(ifNoneMatch)) {

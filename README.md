@@ -15,10 +15,13 @@ GitHub 등 여러 개발 플랫폼에 흩어진 활동 데이터를 수집해 �
 ```http
 GET /developers/{username}
 GET /developers/{username}/repositories?page=1&size=20
+GET /developers/{username}/activities?page=1&size=20
+GET /developers/{username}/activity-summary
 ```
 
-현재 GitHub 사용자 프로필과 저장소 목록 조회를 지원합니다. 저장소는 최근 업데이트 순으로 조회하며 `page`는 1 이상, `size`는 1~100을 허용합니다. 존재하지 않는 사용자는 `404`, GitHub API 장애는 `502`, 응답 시간 초과는 `504`의 `ProblemDetail` 응답으로 변환합니다.
+현재 GitHub 사용자 프로필, 저장소 목록, 최근 활동과 30일 활동 요약을 지원합니다. 저장소와 활동은 최근 업데이트 순으로 조회하며 `page`는 1 이상, `size`는 1~100을 허용합니다. 존재하지 않는 사용자는 `404`, GitHub API 장애는 `502`, 응답 시간 초과는 `504`의 `ProblemDetail` 응답으로 변환합니다.
 프로필과 저장소 목록은 5분 동안 메모리에 캐시하며, GitHub 장애가 발생하면 최대 15분까지 오래된 캐시를 제한적으로 사용할 수 있습니다. GitHub 호출 한도 초과는 `429`로 반환합니다. 응답에는 ETag를 포함하며, 변경되지 않은 응답에는 `304`를 사용합니다.
+활동 API는 최근 GitHub 활동을 페이지 단위로 제공하며, 요약 API는 최근 30일 활동을 종류와 저장소별로 집계합니다.
 
 ## 해결하려는 문제
 
@@ -91,7 +94,8 @@ flowchart LR
 4. **완료:** 캐시·ETag·Rate Limit 처리
 5. API 버전 관리와 `ProblemDetail` 오류 규격 적용
 6. **진행 중:** 메트릭·트레이싱을 통한 외부 호출 관측
-7. 필요성이 검증된 저장소와 추가 Provider 도입
+7. **완료:** 개발자 활동 목록과 최근 30일 활동 요약
+8. 필요성이 검증된 저장소와 추가 Provider 도입
 
 ## 실행 방법
 

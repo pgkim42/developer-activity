@@ -20,4 +20,11 @@ interface GitHubClient {
 			@RequestParam String sort,
 			@RequestParam String direction
 	);
+
+	@GetExchange("/users/{username}/events")
+	List<GitHubEventResponse> getEvents(
+			@PathVariable String username,
+			@RequestParam int page,
+			@RequestParam("per_page") int size
+	);
 }

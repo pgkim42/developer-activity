@@ -12,6 +12,7 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -79,6 +80,39 @@ class DeveloperControllerTests {
 				.andExpect(jsonPath("$[0].updatedAt").value("2026-08-01T12:30:00Z"));
 
 		verify(developerService).getRepositories("octocat", 1, 20);
+	}
+
+	@Test
+	void returnsActivitiesWithDefaultPagination() throws Exception {
+		when(developerService.getActivities("octocat", 1, 20)).thenReturn(List.of(
+				new DeveloperActivity(
+						"PushEvent", "octocat/Hello-World",
+						"Pushed commits to octocat/Hello-World",
+						Instant.parse("2026-08-16T12:30:00Z")
+				)
+		));
+
+		mockMvc.perform(get("/developers/{username}/activities", "octocat"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[0].type").value("PushEvent"))
+				.andExpect(jsonPath("$[0].repository").value("octocat/Hello-World"));
+	}
+
+	@Test
+	void returnsActivitySummary() throws Exception {
+		when(developerService.getActivitySummary("octocat")).thenReturn(
+				new DeveloperActivitySummary(
+						2,
+						Map.of("PushEvent", 1, "IssuesEvent", 1),
+						List.of(new RepositoryActivityCount("octocat/Hello-World", 2))
+				)
+		);
+
+		mockMvc.perform(get("/developers/{username}/activity-summary", "octocat"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.eventCount").value(2))
+				.andExpect(jsonPath("$.eventTypeCounts.PushEvent").value(1))
+				.andExpect(jsonPath("$.repositories[0].activityCount").value(2));
 	}
 
 	@Test
