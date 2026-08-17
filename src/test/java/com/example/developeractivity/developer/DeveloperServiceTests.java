@@ -97,6 +97,20 @@ class DeveloperServiceTests {
 	}
 
 	@Test
+	void translatesGitHubRateLimit() {
+		HttpHeaders headers = new HttpHeaders();
+		headers.set("X-RateLimit-Remaining", "0");
+		headers.set("X-RateLimit-Reset", "1893456000");
+		HttpClientErrorException limited = HttpClientErrorException.create(
+				HttpStatus.FORBIDDEN, "Forbidden", headers, new byte[0], null
+		);
+		when(gitHubClient.getUser("octocat")).thenThrow(limited);
+
+		assertThatThrownBy(() -> developerService.getProfile("octocat"))
+				.isInstanceOf(GitHubRateLimitException.class);
+	}
+
+	@Test
 	void doesNotClassifyTimeoutFromMessageAlone() {
 		when(gitHubClient.getUser("octocat"))
 				.thenThrow(new ResourceAccessException("Connection timed out"));
