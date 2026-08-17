@@ -5,8 +5,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Instant;
 import java.util.List;
@@ -16,6 +18,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(DeveloperController.class)
@@ -39,6 +42,25 @@ class DeveloperControllerTests {
 				.andExpect(jsonPath("$.username").value("octocat"))
 				.andExpect(jsonPath("$.publicRepositoryCount").value(8))
 				.andExpect(jsonPath("$.followerCount").value(17_905));
+	}
+
+	@Test
+	void returnsNotModifiedWhenProfileEtagMatches() throws Exception {
+		DeveloperProfile profile = new DeveloperProfile(
+				"octocat", "The Octocat", "https://github.com/octocat",
+				"https://avatars.githubusercontent.com/u/583231", 8, 17_905
+		);
+		when(developerService.getProfile("octocat")).thenReturn(profile);
+
+		MvcResult first = mockMvc.perform(get("/developers/{username}", "octocat"))
+				.andExpect(status().isOk())
+				.andReturn();
+		String etag = first.getResponse().getHeader("ETag");
+
+		mockMvc.perform(get("/developers/{username}", "octocat")
+						.header("If-None-Match", etag))
+				.andExpect(status().isNotModified())
+				.andExpect(header().string("ETag", etag));
 	}
 
 	@Test
@@ -104,6 +126,19 @@ class DeveloperControllerTests {
 		mockMvc.perform(get("/developers/{username}", "octocat"))
 				.andExpect(status().isBadGateway())
 				.andExpect(jsonPath("$.title").value("Upstream service unavailable"));
+	}
+
+	@Test
+	void returnsTooManyRequestsProblemForGitHubRateLimit() throws Exception {
+		HttpHeaders headers = new HttpHeaders();
+		headers.set("X-RateLimit-Reset", "1893456000");
+		when(developerService.getProfile("octocat"))
+				.thenThrow(new GitHubRateLimitException(headers));
+
+		mockMvc.perform(get("/developers/{username}", "octocat"))
+				.andExpect(status().isTooManyRequests())
+				.andExpect(jsonPath("$.title").value("GitHub API rate limit exceeded"))
+				.andExpect(jsonPath("$.retryAfterSeconds").isNumber());
 	}
 
 	@Test

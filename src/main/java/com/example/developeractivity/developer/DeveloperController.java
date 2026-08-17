@@ -6,9 +6,13 @@ import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -25,22 +29,34 @@ class DeveloperController {
 	private final DeveloperService developerService;
 
 	@GetMapping("/{username}")
-	DeveloperProfile getProfile(
+	ResponseEntity<DeveloperProfile> getProfile(
 			@PathVariable
 			@Pattern(regexp = GITHUB_USERNAME_PATTERN, message = "must be a valid GitHub username")
-			String username
+			String username,
+			@RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch
 	) {
-		return developerService.getProfile(username);
+		DeveloperProfile profile = developerService.getProfile(username);
+		return conditionalResponse(profile, ifNoneMatch);
 	}
 
 	@GetMapping("/{username}/repositories")
-	List<DeveloperRepository> getRepositories(
+	ResponseEntity<List<DeveloperRepository>> getRepositories(
 			@PathVariable
 			@Pattern(regexp = GITHUB_USERNAME_PATTERN, message = "must be a valid GitHub username")
 			String username,
 			@RequestParam(defaultValue = "1") @Min(1) int page,
-			@RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
+			@RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
+			@RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch
 	) {
-		return developerService.getRepositories(username, page, size);
+		List<DeveloperRepository> repositories = developerService.getRepositories(username, page, size);
+		return conditionalResponse(repositories, ifNoneMatch);
+	}
+
+	private <T> ResponseEntity<T> conditionalResponse(T body, String ifNoneMatch) {
+		String etag = "\"" + Integer.toHexString(body.hashCode()) + "\"";
+		if (etag.equals(ifNoneMatch)) {
+			return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(etag).build();
+		}
+		return ResponseEntity.ok().eTag(etag).body(body);
 	}
 }

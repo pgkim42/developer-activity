@@ -5,6 +5,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import java.time.Duration;
+import java.time.Instant;
 
 @RestControllerAdvice(assignableTypes = DeveloperController.class)
 class DeveloperExceptionHandler {
@@ -21,6 +23,22 @@ class DeveloperExceptionHandler {
 	@ExceptionHandler(GitHubUnavailableException.class)
 	ProblemDetail handleUnavailable(GitHubUnavailableException exception) {
 		return problem(HttpStatus.BAD_GATEWAY, "Upstream service unavailable", exception.getMessage());
+	}
+
+	@ExceptionHandler(GitHubRateLimitException.class)
+	ProblemDetail handleRateLimit(GitHubRateLimitException exception) {
+		ProblemDetail problem = problem(
+				HttpStatus.TOO_MANY_REQUESTS, "GitHub API rate limit exceeded", exception.getMessage()
+		);
+		exception.retryAt().ifPresent(retryAt -> {
+			long seconds = Math.max(0, Duration.between(Instant.now(), retryAt).toSeconds());
+			problem.setProperty("retryAfterSeconds", seconds);
+			problem.setProperty("rateLimitReset", retryAt.toString());
+		});
+		if (exception.remaining() != null) {
+			problem.setProperty("rateLimitRemaining", exception.remaining());
+		}
+		return problem;
 	}
 
 	@ExceptionHandler(ConstraintViolationException.class)
