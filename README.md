@@ -93,7 +93,7 @@ flowchart LR
 3. **완료:** 설정 가능한 외부 API timeout과 `504` 응답 처리
 4. **완료:** 캐시·ETag·Rate Limit 처리
 5. API 버전 관리와 `ProblemDetail` 오류 규격 적용
-6. **진행 중:** 메트릭·트레이싱을 통한 외부 호출 관측
+6. **완료:** 캐시·GitHub 호출 Micrometer 지표와 Actuator `/metrics` 노출
 7. **완료:** 개발자 활동 목록과 최근 30일 활동 요약
 8. 필요성이 검증된 저장소와 추가 Provider 도입
 
@@ -147,11 +147,16 @@ curl "http://localhost:8080/developers/octocat/repositories?page=1&size=20"
 ./gradlew test
 ```
 
-Actuator가 활성화되어 있으므로 애플리케이션 실행 후 상태를 확인할 수 있습니다.
+Actuator가 활성화되어 있으므로 애플리케이션 실행 후 상태와 관측 지표를 확인할 수 있습니다.
 
 ```http
 GET http://localhost:8080/actuator/health
+GET http://localhost:8080/actuator/metrics/developer.cache.hits
+GET http://localhost:8080/actuator/metrics/developer.cache.stale
+GET http://localhost:8080/actuator/metrics/developer.github.calls
 ```
+
+캐시 적중은 `developer.cache.hits`, 장애 시 오래된 캐시 사용은 `developer.cache.stale`로 셉니다. GitHub 호출은 `developer.github.calls` 타이머이며 `outcome` 태그는 `success`, `timeout`, `not_found`, `rate_limited`, `unavailable`입니다.
 
 ## 문서
 

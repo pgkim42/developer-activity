@@ -30,7 +30,7 @@ class DeveloperService {
 		String key = "profile:" + username;
 		DeveloperProfile fresh = cache == null ? null : (DeveloperProfile) cache.fresh(key);
 		if (fresh != null) {
-			count("cache.hit");
+			countHit();
 			return fresh;
 		}
 		try {
@@ -42,7 +42,7 @@ class DeveloperService {
 		} catch (RuntimeException exception) {
 			DeveloperProfile stale = cache == null ? null : (DeveloperProfile) cache.stale(key);
 			if (stale != null && isUpstreamFailure(exception)) {
-				count("cache.stale");
+				countStale();
 				return stale;
 			}
 			throw exception;
@@ -54,7 +54,7 @@ class DeveloperService {
 		@SuppressWarnings("unchecked")
 		List<DeveloperRepository> fresh = cache == null ? null : (List<DeveloperRepository>) cache.fresh(key);
 		if (fresh != null) {
-			count("cache.hit");
+			countHit();
 			return fresh;
 		}
 		try {
@@ -75,7 +75,7 @@ class DeveloperService {
 					? null
 					: (List<DeveloperRepository>) cache.stale(key);
 			if (stale != null && isUpstreamFailure(exception)) {
-				count("cache.stale");
+				countStale();
 				return stale;
 			}
 			throw exception;
@@ -89,7 +89,7 @@ class DeveloperService {
 				? null
 				: (List<DeveloperActivity>) cache.fresh(key);
 		if (fresh != null) {
-			count("cache.hit");
+			countHit();
 			return fresh;
 		}
 		try {
@@ -110,7 +110,7 @@ class DeveloperService {
 					? null
 					: (List<DeveloperActivity>) cache.stale(key);
 			if (stale != null && isUpstreamFailure(exception)) {
-				count("cache.stale");
+				countStale();
 				return stale;
 			}
 			throw exception;
@@ -146,24 +146,31 @@ class DeveloperService {
 
 	private <T> T callGitHub(String username, Supplier<T> request) {
 		Instant started = Instant.now();
+		String outcome = "success";
 		try {
 			return request.get();
 		} catch (HttpClientErrorException.NotFound exception) {
+			outcome = "not_found";
 			throw new DeveloperNotFoundException(username);
 		} catch (HttpClientErrorException exception) {
 			if (isRateLimited(exception)) {
+				outcome = "rate_limited";
 				throw new GitHubRateLimitException(exception.getResponseHeaders());
 			}
+			outcome = "unavailable";
 			throw new GitHubUnavailableException(exception);
 		} catch (ResourceAccessException exception) {
 			if (hasTimeoutCause(exception)) {
+				outcome = "timeout";
 				throw new GitHubTimeoutException(exception);
 			}
+			outcome = "unavailable";
 			throw new GitHubUnavailableException(exception);
 		} catch (RestClientException exception) {
+			outcome = "unavailable";
 			throw new GitHubUnavailableException(exception);
 		} finally {
-			recordDuration(Duration.between(started, Instant.now()));
+			recordDuration(Duration.between(started, Instant.now()), outcome);
 		}
 	}
 
@@ -173,15 +180,21 @@ class DeveloperService {
 				|| exception instanceof GitHubRateLimitException;
 	}
 
-	private void count(String outcome) {
+	private void countHit() {
 		if (meterRegistry != null) {
-			meterRegistry.counter("developer.cache.requests", "outcome", outcome).increment();
+			meterRegistry.counter("developer.cache.hits").increment();
 		}
 	}
 
-	private void recordDuration(Duration duration) {
+	private void countStale() {
 		if (meterRegistry != null) {
-			meterRegistry.timer("github.client.requests").record(duration);
+			meterRegistry.counter("developer.cache.stale").increment();
+		}
+	}
+
+	private void recordDuration(Duration duration, String outcome) {
+		if (meterRegistry != null) {
+			meterRegistry.timer("developer.github.calls", "outcome", outcome).record(duration);
 		}
 	}
 

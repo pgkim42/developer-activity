@@ -142,7 +142,7 @@ retry는 함께 도입하지 않습니다. 재시도는 호출 횟수, 지연 �
 - 반복 조회가 GitHub 호출 한도를 불필요하게 소비하지 않습니다.
 - 캐시는 프로세스 재시작 시 사라지며, 여러 인스턴스가 필요해질 때 Redis 같은 공유 저장소를 재검토합니다.
 - 캐시 무효화와 최신성 요구가 생기면 TTL과 ETag 정책을 함께 재검토합니다.
-- 캐시 적중, 오래된 캐시 사용, 외부 호출 시간은 Micrometer 지표로 기록합니다.
+- 캐시 적중은 `developer.cache.hits`, 오래된 캐시 사용은 `developer.cache.stale`로 기록합니다. GitHub 호출 시간은 `developer.github.calls` 타이머이며 `outcome=success|timeout|not_found|rate_limited|unavailable` 태그를 붙입니다. 지표는 `/actuator/metrics`에서 조회합니다.
 
 ## D-008. 활동 목록과 30일 요약을 GitHub 이벤트에서 제공한다
 
