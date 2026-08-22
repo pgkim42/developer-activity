@@ -158,6 +158,20 @@ GET http://localhost:8080/actuator/metrics/developer.github.calls
 
 캐시 적중은 `developer.cache.hits`, 장애 시 오래된 캐시 사용은 `developer.cache.stale`로 셉니다. GitHub 호출은 `developer.github.calls` 타이머이며 `outcome` 태그는 `success`, `timeout`, `not_found`, `rate_limited`, `unavailable`입니다.
 
+앱 프로세스 안의 숫자는 재시작되면 사라집니다. 시간에 쌓으려면 Prometheus가 `/actuator/prometheus`를 긁게 합니다.
+
+```http
+GET http://localhost:8080/actuator/prometheus
+```
+
+앱을 8080에 띄운 뒤:
+
+```bash
+docker compose up -d
+```
+
+Prometheus UI는 `http://localhost:9090`입니다. 스크랩 이름은 `developer_cache_hits_total`, `developer_github_calls_seconds_count`입니다.
+
 ## 문서
 
 - [설계 결정 기록](docs/decisions.md): 주요 기술 선택의 배경, 결과, 재검토 조건
