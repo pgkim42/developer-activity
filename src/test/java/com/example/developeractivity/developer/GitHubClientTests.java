@@ -1,10 +1,12 @@
 package com.example.developeractivity.developer;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.restclient.test.autoconfigure.AutoConfigureMockRestServiceServer;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
 import java.util.List;
@@ -16,13 +18,21 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE, properties = {
+		"spring.http.serviceclient.github.base-url=https://api.github.test",
+		"github.api.token="
+})
+@AutoConfigureMockRestServiceServer
 class GitHubClientTests {
+
+	@Autowired
+	private GitHubClient client;
+
+	@Autowired
+	private MockRestServiceServer server;
 
 	@Test
 	void requestsAndDeserializesGitHubUser() {
-		RestClient.Builder builder = RestClient.builder();
-		MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-		GitHubClient client = new GitHubClientConfig().githubClient(builder, "https://api.github.test", "");
 		server.expect(once(), requestTo("https://api.github.test/users/octocat"))
 				.andExpect(header(HttpHeaders.ACCEPT, "application/vnd.github+json"))
 				.andExpect(header(HttpHeaders.USER_AGENT, "developer-activity"))
@@ -49,15 +59,9 @@ class GitHubClientTests {
 
 	@Test
 	void requestsAndDeserializesRepositories() {
-		RestClient.Builder builder = RestClient.builder();
-		MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-		GitHubClient client = new GitHubClientConfig().githubClient(
-				builder, "https://api.github.test", "github-token"
-		);
 		server.expect(once(), requestTo(
 						"https://api.github.test/users/octocat/repos?page=2&per_page=30&sort=updated&direction=desc"
 				))
-				.andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer github-token"))
 				.andRespond(withSuccess("""
 						[
 						  {
@@ -89,9 +93,6 @@ class GitHubClientTests {
 
 	@Test
 	void requestsAndDeserializesActivities() {
-		RestClient.Builder builder = RestClient.builder();
-		MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-		GitHubClient client = new GitHubClientConfig().githubClient(builder, "https://api.github.test", "");
 		server.expect(once(), requestTo(
 						"https://api.github.test/users/octocat/events?page=1&per_page=20"
 				))
@@ -112,6 +113,40 @@ class GitHubClientTests {
 				"1", "PushEvent", new GitHubEventRepository("octocat/Hello-World"),
 				Instant.parse("2026-08-15T12:30:00Z")
 		));
+		server.verify();
+	}
+}
+
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE, properties = {
+		"spring.http.serviceclient.github.base-url=https://api.github.test",
+		"github.api.token=github-token"
+})
+@AutoConfigureMockRestServiceServer
+class GitHubClientTokenTests {
+
+	@Autowired
+	private GitHubClient client;
+
+	@Autowired
+	private MockRestServiceServer server;
+
+	@Test
+	void sendsBearerAuthorizationWhenTokenIsConfigured() {
+		server.expect(once(), requestTo("https://api.github.test/users/octocat"))
+				.andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer github-token"))
+				.andRespond(withSuccess("""
+						{
+						  "login": "octocat",
+						  "name": "The Octocat",
+						  "html_url": "https://github.com/octocat",
+						  "avatar_url": "https://avatars.githubusercontent.com/u/583231",
+						  "public_repos": 8,
+						  "followers": 17905
+						}
+						""", MediaType.APPLICATION_JSON));
+
+		client.getUser("octocat");
+
 		server.verify();
 	}
 }

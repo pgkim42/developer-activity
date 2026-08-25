@@ -25,6 +25,7 @@
 
 - 상태: 채택
 - 날짜: 2026-08-11
+- 개정: 2026-08-25
 
 ### 맥락
 
@@ -34,11 +35,14 @@ GitHub API의 경로와 쿼리 파라미터를 명확한 계약으로 표현하�
 
 `RestClient`를 기반으로 한 Spring HTTP Interface에 GitHub API 계약을 선언합니다. GitHub 응답 DTO와 공개 API 응답 모델은 분리합니다.
 
+프록시 조립은 `HttpServiceProxyFactory`를 직접 만들지 않고 Boot 4 HTTP Service 그룹에 맡깁니다. `@ImportHttpServices(group = "github", types = GitHubClient.class)`로 등록하고, 호스트는 `spring.http.serviceclient.github.base-url`로 둡니다. GitHub가 요구하는 `Accept`·`User-Agent`와 선택적 Bearer token은 `RestClientHttpServiceGroupConfigurer`가 붙입니다.
+
 ### 결과
 
 - GitHub 요청 형식이 `GitHubClient`에 모입니다.
 - 외부 응답 변경이 공개 API에 직접 전파되지 않습니다.
 - 클라이언트 인터페이스는 기술 선택에 필요한 것이므로 별도의 범용 인터페이스를 추가하지 않습니다.
+- 두 번째 Provider가 생기면 HTTP Service 그룹을 하나 더 등록합니다. 그룹별 timeout이 필요해지면 `spring.http.serviceclient.<group>.*`를 재검토합니다.
 
 ## D-003. 자동 테스트는 실제 GitHub에 의존하지 않는다
 
@@ -110,7 +114,7 @@ GitHub 클라이언트의 예외를 그대로 노출하면 공개 API가 외부 
 
 ### 결정
 
-Spring Boot 4.1의 공통 HTTP 클라이언트 설정으로 연결 timeout 2초와 응답 timeout 5초를 적용합니다. 현재 auto-configured `RestClient.Builder`를 사용하는 모든 외부 호출에 같은 기본값이 적용됩니다.
+Spring Boot 4.1의 공통 HTTP 클라이언트 설정으로 연결 timeout 2초와 응답 timeout 5초를 적용합니다. HTTP Service 그룹을 포함한 모든 외부 HTTP 클라이언트에 같은 기본값이 적용됩니다.
 
 시간 초과는 `504 Gateway Timeout`, 그 밖의 연결 장애는 `502 Bad Gateway`로 변환합니다. timeout은 예외 메시지가 아니라 `HttpTimeoutException`, `SocketTimeoutException`이 포함된 cause chain으로 판별합니다.
 

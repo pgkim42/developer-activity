@@ -43,7 +43,8 @@ class GitHubTimeoutIntegrationTests {
 
 	@DynamicPropertySource
 	static void githubProperties(DynamicPropertyRegistry registry) {
-		registry.add("github.api.base-url", () -> "http://localhost:" + GITHUB_SERVER.getAddress().getPort());
+		registry.add("spring.http.serviceclient.github.base-url",
+				() -> "http://localhost:" + GITHUB_SERVER.getAddress().getPort());
 	}
 
 	@AfterAll

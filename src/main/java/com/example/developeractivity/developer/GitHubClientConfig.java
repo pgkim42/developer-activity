@@ -5,32 +5,23 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.support.RestClientAdapter;
-import org.springframework.web.service.invoker.HttpServiceProxyFactory;
+import org.springframework.web.client.support.RestClientHttpServiceGroupConfigurer;
+import org.springframework.web.service.registry.ImportHttpServices;
 
 @Configuration(proxyBeanMethods = false)
+@ImportHttpServices(group = "github", types = GitHubClient.class)
 class GitHubClientConfig {
 
 	@Bean
-	GitHubClient githubClient(
-			RestClient.Builder builder,
-			@Value("${github.api.base-url}") String baseUrl,
+	RestClientHttpServiceGroupConfigurer githubClientConfigurer(
 			@Value("${github.api.token:}") String token
 	) {
-		RestClient restClient = builder
-				.baseUrl(baseUrl)
-				.defaultHeader(HttpHeaders.ACCEPT, "application/vnd.github+json")
-				.defaultHeader(HttpHeaders.USER_AGENT, "developer-activity")
-				.defaultHeaders(headers -> {
-					if (StringUtils.hasText(token)) {
-						headers.setBearerAuth(token);
-					}
-				})
-				.build();
-
-		return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(restClient))
-				.build()
-				.createClient(GitHubClient.class);
+		return groups -> groups.filterByName("github").forEachClient((group, builder) -> {
+			builder.defaultHeader(HttpHeaders.ACCEPT, "application/vnd.github+json");
+			builder.defaultHeader(HttpHeaders.USER_AGENT, "developer-activity");
+			if (StringUtils.hasText(token)) {
+				builder.defaultHeaders(headers -> headers.setBearerAuth(token));
+			}
+		});
 	}
 }
