@@ -3,21 +3,19 @@ package com.example.developeractivity.developer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.resttestclient.TestRestTemplate;
-import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.test.web.servlet.client.RestTestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureTestRestTemplate
+@AutoConfigureRestTestClient
 @AutoConfigureMetrics
 class PrometheusEndpointTests {
 
 	@Autowired
-	private TestRestTemplate restTemplate;
+	private RestTestClient restTestClient;
 
 	@Autowired
 	private DeveloperCache cache;
@@ -33,10 +31,11 @@ class PrometheusEndpointTests {
 		));
 		developerService.getProfile("octocat");
 
-		ResponseEntity<String> response = restTemplate.getForEntity("/actuator/prometheus", String.class);
-
-		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-		assertThat(response.getBody()).contains("developer_cache_hits");
+		restTestClient.get().uri("/actuator/prometheus")
+				.exchange()
+				.expectStatus().isOk()
+				.expectBody(String.class)
+				.value(body -> assertThat(body).contains("developer_cache_hits"));
 	}
 
 	@Test
@@ -47,10 +46,10 @@ class PrometheusEndpointTests {
 		));
 		developerService.getProfile("octocat");
 
-		ResponseEntity<String> response = restTemplate.getForEntity(
-				"/actuator/metrics/developer.cache.hits", String.class);
-
-		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-		assertThat(response.getBody()).contains("developer.cache.hits");
+		restTestClient.get().uri("/actuator/metrics/developer.cache.hits")
+				.exchange()
+				.expectStatus().isOk()
+				.expectBody(String.class)
+				.value(body -> assertThat(body).contains("developer.cache.hits"));
 	}
 }

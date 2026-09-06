@@ -6,13 +6,13 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.client.RestTestClient;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -21,17 +21,14 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 
 @SpringBootTest(properties = {
 		"spring.http.clients.connect-timeout=200ms",
 		"spring.http.clients.read-timeout=100ms"
 })
 @AutoConfigureMockMvc
+@AutoConfigureRestTestClient
 @AutoConfigureMetrics
 class GitHubTimeoutIntegrationTests {
 
@@ -44,7 +41,7 @@ class GitHubTimeoutIntegrationTests {
 	private static final HttpServer GITHUB_SERVER = startGitHubServer();
 
 	@Autowired
-	private MockMvc mockMvc;
+	private RestTestClient restTestClient;
 
 	@DynamicPropertySource
 	static void githubProperties(DynamicPropertyRegistry registry) {
@@ -60,53 +57,67 @@ class GitHubTimeoutIntegrationTests {
 	}
 
 	@Test
-	void returnsNormalGitHubResponseWithinTimeout() throws Exception {
-		mockMvc.perform(get("/developers/fast-user"))
-				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.username").value("fast-user"));
+	void returnsNormalGitHubResponseWithinTimeout() {
+		restTestClient.get().uri("/developers/fast-user")
+				.exchange()
+				.expectStatus().isOk()
+				.expectBody()
+				.jsonPath("$.username").isEqualTo("fast-user");
 	}
 
 	@Test
-	void returnsGatewayTimeoutWhenProfileResponseIsDelayed() throws Exception {
-		mockMvc.perform(get("/developers/slow-user"))
-				.andExpect(status().isGatewayTimeout())
-				.andExpect(jsonPath("$.title").value("Upstream service timed out"))
-				.andExpect(jsonPath("$.detail").value("GitHub API did not respond in time"));
+	void returnsGatewayTimeoutWhenProfileResponseIsDelayed() {
+		restTestClient.get().uri("/developers/slow-user")
+				.exchange()
+				.expectStatus().isEqualTo(504)
+				.expectBody()
+				.jsonPath("$.title").isEqualTo("Upstream service timed out")
+				.jsonPath("$.detail").isEqualTo("GitHub API did not respond in time");
 	}
 
 	@Test
-	void returnsGatewayTimeoutWhenRepositoryResponseIsDelayed() throws Exception {
-		mockMvc.perform(get("/developers/slow-user/repositories"))
-				.andExpect(status().isGatewayTimeout())
-				.andExpect(jsonPath("$.title").value("Upstream service timed out"));
+	void returnsGatewayTimeoutWhenRepositoryResponseIsDelayed() {
+		restTestClient.get().uri("/developers/slow-user/repositories")
+				.exchange()
+				.expectStatus().isEqualTo(504)
+				.expectBody()
+				.jsonPath("$.title").isEqualTo("Upstream service timed out");
 	}
 
 	@Test
-	void keepsNotFoundResponseForMissingGitHubUser() throws Exception {
-		mockMvc.perform(get("/developers/missing-user"))
-				.andExpect(status().isNotFound())
-				.andExpect(jsonPath("$.title").value("Developer not found"));
+	void keepsNotFoundResponseForMissingGitHubUser() {
+		restTestClient.get().uri("/developers/missing-user")
+				.exchange()
+				.expectStatus().isNotFound()
+				.expectBody()
+				.jsonPath("$.title").isEqualTo("Developer not found");
 	}
 
 	@Test
-	void returnsBadGatewayForNonTimeoutConnectionFailure() throws Exception {
-		mockMvc.perform(get("/developers/disconnected-user"))
-				.andExpect(status().isBadGateway())
-				.andExpect(jsonPath("$.title").value("Upstream service unavailable"));
+	void returnsBadGatewayForNonTimeoutConnectionFailure() {
+		restTestClient.get().uri("/developers/disconnected-user")
+				.exchange()
+				.expectStatus().isEqualTo(502)
+				.expectBody()
+				.jsonPath("$.title").isEqualTo("Upstream service unavailable");
 	}
 
 	@Test
-	void scrapesTimeoutAndUnavailableOutcomesAfterUpstreamFailures() throws Exception {
-		mockMvc.perform(get("/developers/slow-user"))
-				.andExpect(status().isGatewayTimeout());
-		mockMvc.perform(get("/developers/disconnected-user"))
-				.andExpect(status().isBadGateway());
+	void scrapesTimeoutAndUnavailableOutcomesAfterUpstreamFailures() {
+		restTestClient.get().uri("/developers/slow-user")
+				.exchange()
+				.expectStatus().isEqualTo(504);
+		restTestClient.get().uri("/developers/disconnected-user")
+				.exchange()
+				.expectStatus().isEqualTo(502);
 
-		MvcResult scrape = mockMvc.perform(get("/actuator/prometheus"))
-				.andExpect(status().isOk())
-				.andExpect(content().contentTypeCompatibleWith("text/plain"))
-				.andReturn();
-		String body = scrape.getResponse().getContentAsString();
+		String body = restTestClient.get().uri("/actuator/prometheus")
+				.exchange()
+				.expectStatus().isOk()
+				.expectHeader().contentTypeCompatibleWith(MediaType.parseMediaType("text/plain"))
+				.expectBody(String.class)
+				.returnResult()
+				.getResponseBody();
 		assertThat(body)
 				.contains("developer_github_calls_seconds_count{outcome=\"timeout\"")
 				.contains("developer_github_calls_seconds_count{outcome=\"unavailable\"");

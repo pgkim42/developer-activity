@@ -2,6 +2,7 @@ package com.example.developeractivity.developer;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.tracing.Tracer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,7 +39,7 @@ class DeveloperServiceMetricsTests {
 	@BeforeEach
 	void setUp() {
 		meterRegistry = new SimpleMeterRegistry();
-		developerService = new DeveloperService(gitHubClient, cache, meterRegistry);
+		developerService = new DeveloperService(gitHubClient, cache, meterRegistry, Tracer.NOOP);
 	}
 
 	@Test

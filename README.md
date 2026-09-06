@@ -27,10 +27,10 @@ GET /developers/{username}/activity-summary
 - 느린 GitHub는 언제 포기하는가? (2s connect / 5s read → `504`)
 - 한도를 깎지 않고 같은 조회를 되풀이하려면? (캐시·ETag)
 - 한도를 넘기면 호출자에게 어떻게 알리는가? (`429`)
-- 캐시 적중·스테일·실제 호출을 어떻게 보는가? (Actuator + Prometheus)
+- 캐시 적중·스테일·실제 호출을 어떻게 보는가? (숫자: Actuator + Prometheus, 한 요청 흐름: Jaeger)
 - timeout·5xx는 한 번만 다시 치는가? (오래된 값이 있으면 바로 그 값)
 
-아직 안 한 것: API 버전, 두 번째 Provider, Redis/DB, OpenTelemetry.
+아직 안 한 것: API 버전, 두 번째 Provider, Redis/DB.
 
 ## 구조
 
@@ -40,13 +40,14 @@ flowchart LR
     API --> Cache[(Caffeine)]
     API --> GitHub[GitHub API]
     API --> Metrics[Actuator / Prometheus]
+    API --> Traces[OTLP / Jaeger]
 ```
 
 ## 기술 스택
 
-**현재:** Java 21, Spring Boot 4.1.0, Web MVC, HTTP Interface / RestClient, Jackson 3, Bean Validation, Caffeine, Actuator, Micrometer, Prometheus registry, Lombok, Gradle 9.5.1, JUnit.
+**현재:** Java 21, Spring Boot 4.1.0, Web MVC, HTTP Interface / RestClient, Jackson 3, Bean Validation, Caffeine, Actuator, Micrometer, Prometheus registry, OpenTelemetry tracing, Lombok, Gradle 9.5.1, JUnit.
 
-**필요할 때만:** API 버전, OpenTelemetry, WireMock, Testcontainers, Redis, PostgreSQL.
+**필요할 때만:** API 버전, WireMock, Testcontainers, Redis, PostgreSQL.
 
 ## 개발 단계
 
@@ -59,7 +60,8 @@ flowchart LR
 7. **완료:** `/actuator/prometheus`와 로컬 Prometheus compose
 8. **완료:** 활동 목록과 30일 요약
 9. **완료:** GET 재시도 (timeout·5xx 한 번, 4xx·429 제외)
-10. 보류: API 버전, 추가 Provider, OpenTelemetry — 지표가 필요를 보여 줄 때
+10. **완료:** OpenTelemetry span (cache hit/miss/stale, GitHub outcome, 재시도 시도)
+11. 보류: API 버전, 추가 Provider — 공개 계약이나 두 번째 바깥 서비스가 필요할 때
 
 ## 실행
 
@@ -95,13 +97,15 @@ GET http://localhost:8080/actuator/metrics/developer.github.calls
 
 `developer.github.calls`의 `outcome`은 `success` | `timeout` | `not_found` | `rate_limited` | `unavailable`. 앱을 끄면 숫자는 사라진다.
 
+한 요청의 흐름(저장 적중 / 실제 호출 / 오래된 값 / 재시도)은 span으로 남긴다. `docker compose up -d` 후 화면은 http://localhost:16686 (Jaeger). 앱을 끄면 숫자는 사라지고, 흐름은 Jaeger에 남는다.
+
 시간에 쌓으려면 앱을 8080에 둔 채:
 
 ```bash
 docker compose up -d
 ```
 
-`GET /actuator/prometheus`를 5초마다 긁는다. UI는 http://localhost:9090. 시계열 이름은 `developer_cache_hits_total`, `developer_github_calls_seconds_count`.
+`GET /actuator/prometheus`를 5초마다 긁는다. 숫자 UI는 http://localhost:9090. 시계열 이름은 `developer_cache_hits_total`, `developer_github_calls_seconds_count`. 흐름 UI는 http://localhost:16686.
 
 ## 문서
 

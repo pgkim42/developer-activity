@@ -2,6 +2,8 @@ package com.example.developeractivity.developer;
 
 import lombok.RequiredArgsConstructor;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import org.springframework.core.retry.RetryPolicy;
 import org.springframework.core.retry.RetryTemplate;
 import org.springframework.stereotype.Service;
@@ -17,6 +19,7 @@ import java.net.http.HttpTimeoutException;
 import java.util.List;
 import java.util.Map;
 import java.util.LinkedHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.Comparator;
 import java.util.stream.Collectors;
@@ -28,6 +31,7 @@ class DeveloperService {
 	private final GitHubClient gitHubClient;
 	private final DeveloperCache cache;
 	private final MeterRegistry meterRegistry;
+	private final Tracer tracer;
 	private final RetryTemplate gitHubGetRetry = new RetryTemplate(
 			RetryPolicy.builder()
 					.maxRetries(1)
@@ -96,61 +100,108 @@ class DeveloperService {
 
 	@SuppressWarnings("unchecked")
 	private <T> T load(String key, String username, Supplier<T> request) {
-		T fresh = cache == null ? null : (T) cache.fresh(key);
-		if (fresh != null) {
-			countHit();
-			return fresh;
-		}
-		boolean hasStale = cache != null && cache.stale(key) != null;
-		try {
-			T value = hasStale
-					? callGitHub(username, request)
-					: gitHubGetRetry.invoke(() -> callGitHub(username, request));
-			if (cache != null) {
-				cache.put(key, value);
+		Span lookup = startSpan("developer.lookup");
+		try (Tracer.SpanInScope scope = inScope(lookup)) {
+			T fresh = cache == null ? null : (T) cache.fresh(key);
+			if (fresh != null) {
+				countHit();
+				lookup.tag("cache", "hit");
+				return fresh;
 			}
-			return value;
-		} catch (RuntimeException exception) {
-			T stale = cache == null ? null : (T) cache.stale(key);
-			if (stale != null && isUpstreamFailure(exception)) {
-				countStale();
-				return stale;
+			boolean hasStale = cache != null && cache.stale(key) != null;
+			try {
+				T value = hasStale
+						? callGitHub(username, request, 1)
+						: invokeWithRetry(username, request);
+				lookup.tag("cache", "miss");
+				lookup.tag("github.outcome", "success");
+				if (cache != null) {
+					cache.put(key, value);
+				}
+				return value;
+			} catch (RuntimeException exception) {
+				T stale = cache == null ? null : (T) cache.stale(key);
+				if (stale != null && isUpstreamFailure(exception)) {
+					countStale();
+					lookup.tag("cache", "stale");
+					lookup.tag("github.outcome", outcomeOf(exception));
+					return stale;
+				}
+				lookup.tag("cache", "miss");
+				lookup.tag("github.outcome", outcomeOf(exception));
+				throw exception;
 			}
-			throw exception;
+		} finally {
+			lookup.end();
 		}
 	}
 
-	private <T> T callGitHub(String username, Supplier<T> request) {
+	private <T> T invokeWithRetry(String username, Supplier<T> request) {
+		AtomicInteger attempt = new AtomicInteger();
+		return gitHubGetRetry.invoke(() -> callGitHub(username, request, attempt.incrementAndGet()));
+	}
+
+	private <T> T callGitHub(String username, Supplier<T> request, int attempt) {
+		Span span = startSpan("github.call");
+		span.tag("attempt", String.valueOf(attempt));
 		Instant started = Instant.now();
 		String outcome = "success";
-		try {
-			return request.get();
-		} catch (HttpClientErrorException.NotFound exception) {
-			outcome = "not_found";
-			throw new DeveloperNotFoundException(username);
-		} catch (HttpClientErrorException exception) {
-			if (isRateLimited(exception)) {
-				outcome = "rate_limited";
-				throw new GitHubRateLimitException(exception.getResponseHeaders());
+		try (Tracer.SpanInScope scope = inScope(span)) {
+			try {
+				T value = request.get();
+				span.tag("github.outcome", outcome);
+				return value;
+			} catch (HttpClientErrorException.NotFound exception) {
+				outcome = "not_found";
+				span.tag("github.outcome", outcome);
+				span.error(exception);
+				throw new DeveloperNotFoundException(username);
+			} catch (HttpClientErrorException exception) {
+				if (isRateLimited(exception)) {
+					outcome = "rate_limited";
+					span.tag("github.outcome", outcome);
+					span.error(exception);
+					throw new GitHubRateLimitException(exception.getResponseHeaders());
+				}
+				outcome = "unavailable";
+				span.tag("github.outcome", outcome);
+				span.error(exception);
+				throw new GitHubUnavailableException(exception);
+			} catch (HttpServerErrorException exception) {
+				outcome = "unavailable";
+				span.tag("github.outcome", outcome);
+				span.error(exception);
+				throw new GitHubUnavailableException(exception);
+			} catch (ResourceAccessException exception) {
+				if (hasTimeoutCause(exception)) {
+					outcome = "timeout";
+					span.tag("github.outcome", outcome);
+					span.error(exception);
+					throw new GitHubTimeoutException(exception);
+				}
+				outcome = "unavailable";
+				span.tag("github.outcome", outcome);
+				span.error(exception);
+				throw new GitHubUnavailableException(exception);
+			} catch (RestClientException exception) {
+				outcome = "unavailable";
+				span.tag("github.outcome", outcome);
+				span.error(exception);
+				throw new GitHubUnavailableException(exception);
+			} finally {
+				recordDuration(Duration.between(started, Instant.now()), outcome);
 			}
-			outcome = "unavailable";
-			throw new GitHubUnavailableException(exception);
-		} catch (HttpServerErrorException exception) {
-			outcome = "unavailable";
-			throw new GitHubUnavailableException(exception);
-		} catch (ResourceAccessException exception) {
-			if (hasTimeoutCause(exception)) {
-				outcome = "timeout";
-				throw new GitHubTimeoutException(exception);
-			}
-			outcome = "unavailable";
-			throw new GitHubUnavailableException(exception);
-		} catch (RestClientException exception) {
-			outcome = "unavailable";
-			throw new GitHubUnavailableException(exception);
 		} finally {
-			recordDuration(Duration.between(started, Instant.now()), outcome);
+			span.end();
 		}
+	}
+
+	private Span startSpan(String name) {
+		return tracer.nextSpan().name(name).start();
+	}
+
+	private Tracer.SpanInScope inScope(Span span) {
+		return tracer.withSpan(span);
 	}
 
 	private boolean isUpstreamFailure(RuntimeException exception) {
@@ -165,6 +216,19 @@ class DeveloperService {
 		}
 		return exception instanceof GitHubUnavailableException
 				&& exception.getCause() instanceof HttpServerErrorException;
+	}
+
+	private static String outcomeOf(RuntimeException exception) {
+		if (exception instanceof GitHubTimeoutException) {
+			return "timeout";
+		}
+		if (exception instanceof DeveloperNotFoundException) {
+			return "not_found";
+		}
+		if (exception instanceof GitHubRateLimitException) {
+			return "rate_limited";
+		}
+		return "unavailable";
 	}
 
 	private void countHit() {

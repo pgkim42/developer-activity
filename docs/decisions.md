@@ -48,6 +48,7 @@ GitHub API의 경로와 쿼리 파라미터를 명확한 계약으로 표현하�
 
 - 상태: 채택
 - 날짜: 2026-08-11
+- 개정: 2026-09-06
 
 ### 맥락
 
@@ -57,7 +58,7 @@ GitHub API의 경로와 쿼리 파라미터를 명확한 계약으로 표현하�
 
 - HTTP 계약은 `MockRestServiceServer`로 URI, 헤더, JSON 역직렬화를 검증합니다.
 - 서비스 정책은 Mockito로 GitHub 클라이언트를 대체해 검증합니다.
-- 공개 API는 MockMvc로 상태 코드, 입력 검증, 응답 형식을 검증합니다.
+- 우리 서버를 치는 테스트는 `RestTestClient`로 상태 코드, 입력 검증, 응답 형식, ETag를 검증합니다. 컨트롤러 슬라이스와 timeout 통합은 MockMvc에 묶고, Prometheus 스크랩은 랜덤 포트 서버에 묶습니다.
 - timeout은 로컬 HTTP 서버의 지연 응답으로 실제 HTTP 클라이언트 설정까지 통합 검증합니다.
 - 실제 GitHub 연결은 필요할 때 수동 smoke test로 확인합니다.
 
@@ -193,6 +194,27 @@ GitHub 조회 GET에만 Framework 7 `RetryTemplate`을 사용합니다. 한 번�
 - 호출 한도와 클라이언트 오류를 재시도로 키우지 않습니다.
 - 오래된 캐시가 있으면 재시도로 응답을 늦추지 않습니다.
 - 재시도 횟수나 대상을 넓히려면 timeout 합과 Rate Limit 영향을 다시 검토합니다.
+
+## D-010. GitHub 조회 한 건의 흐름은 span으로 남긴다
+
+- 상태: 채택
+- 날짜: 2026-09-06
+
+### 맥락
+
+D-007은 캐시 적중·스테일·GitHub 호출을 프로세스 카운터로 남긴다. 숫자는 합계만 보여 주고, 한 요청이 저장 적중인지 실제 호출인지 재시도인지 한 줄로 이어 주지 않는다. timeout·5xx 재시도(D-009)가 생긴 뒤에는 시도 단위의 이야기도 필요해졌다.
+
+### 결정
+
+Boot 4 OpenTelemetry starter로 GitHub 조회 한 번에 span을 남긴다. 조회 span 속성은 `cache=hit|miss|stale`이다. 바깥 호출이 있을 때만 `github.outcome=success|timeout|not_found|rate_limited|unavailable`을 붙이고, 시도마다 자식 span과 `attempt`를 붙인다. 신선한 저장 적중은 바깥 호출이 없으므로 `github.outcome`과 바깥 호출 span을 만들지 않는다.
+
+숫자는 기존 Micrometer 카운터/타이머로 남기고, 흐름은 트레이스다. Prometheus 스크랩은 유지한다. 로컬에서 보려면 collector가 포함된 Jaeger를 compose에 두고 OTLP로 보낸다.
+
+### 결과
+
+- 한 요청이 저장 적중인지, 실제 호출인지, 오래된 값인지, 한 번 더 쳤는지 화면에서 구분할 수 있다.
+- 앱을 끄면 숫자는 사라지고, 흐름은 Jaeger에 남는다.
+- 재시도 정책(D-009)과 지표 태그(D-007)는 바꾸지 않는다.
 
 ## 기록 원칙
 
