@@ -4,10 +4,12 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -22,12 +24,15 @@ import java.util.concurrent.Executors;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 
 @SpringBootTest(properties = {
 		"spring.http.clients.connect-timeout=200ms",
 		"spring.http.clients.read-timeout=100ms"
 })
 @AutoConfigureMockMvc
+@AutoConfigureMetrics
 class GitHubTimeoutIntegrationTests {
 
 	private static final CountDownLatch RELEASE_SLOW_RESPONSES = new CountDownLatch(1);
@@ -88,6 +93,23 @@ class GitHubTimeoutIntegrationTests {
 		mockMvc.perform(get("/developers/disconnected-user"))
 				.andExpect(status().isBadGateway())
 				.andExpect(jsonPath("$.title").value("Upstream service unavailable"));
+	}
+
+	@Test
+	void scrapesTimeoutAndUnavailableOutcomesAfterUpstreamFailures() throws Exception {
+		mockMvc.perform(get("/developers/slow-user"))
+				.andExpect(status().isGatewayTimeout());
+		mockMvc.perform(get("/developers/disconnected-user"))
+				.andExpect(status().isBadGateway());
+
+		MvcResult scrape = mockMvc.perform(get("/actuator/prometheus"))
+				.andExpect(status().isOk())
+				.andExpect(content().contentTypeCompatibleWith("text/plain"))
+				.andReturn();
+		String body = scrape.getResponse().getContentAsString();
+		assertThat(body)
+				.contains("developer_github_calls_seconds_count{outcome=\"timeout\"")
+				.contains("developer_github_calls_seconds_count{outcome=\"unavailable\"");
 	}
 
 	private static HttpServer startGitHubServer() {

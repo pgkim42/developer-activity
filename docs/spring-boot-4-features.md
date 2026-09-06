@@ -77,13 +77,13 @@ Boot 4는 Jackson 3를 기본 JSON 라이브러리로 쓴다. 패키지/그룹�
 | Java 21 | Boot 4 기준선(17–25) 안 | `java { toolchain { languageVersion = 21 } }` |
 | Boot 4 테스트 패키지 | 모듈화로 패키지 이동 | `@WebMvcTest` → `org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest` |
 
-이미 쓰는 Boot 4 경로: `@ImportHttpServices`, `spring.http.serviceclient.github.base-url`. 아직 안 쓰는 것: API versioning, `@Retryable`, OpenTelemetry starter, JSpecify/`@NullMarked`, `RestTestClient`, `InetAddressFilter`.
+이미 쓰는 Boot 4 경로: `@ImportHttpServices`, `spring.http.serviceclient.github.base-url`, Framework 7 `RetryTemplate`(D-009). 아직 안 쓰는 것: API versioning, OpenTelemetry starter, JSpecify/`@NullMarked`, `RestTestClient`, `InetAddressFilter`.
 
 ---
 
 ## 다음에 연습할 Boot 4 기능 (현재 범위 = 외부 API 회복력)
 
-순위는 GitHub 연동·timeout·rate limit·캐시라는 현재 학습 축과의 맞음. D-006은 “관측 전에 retry를 넣지 않는다”이므로 retry는 2순위로 둔다.
+순위는 GitHub 연동·timeout·rate limit·캐시라는 현재 학습 축과의 맞음. retry는 D-009로 적용했다.
 
 ### 1. HTTP Service Client 자동설정 — 가장 맞음
 
@@ -101,9 +101,9 @@ spring.http.serviceclient.github.read-timeout=5s
 
 블로그 초안의 `spring.http.client.service.*`는 마일스톤 이름이다. 4.1 문서는 `spring.http.serviceclient.<group>`가 정본.
 
-### 2. Framework 7 retry — 맞음, 다만 D-006 이후
+### 2. Framework 7 retry — 적용됨 (D-009)
 
-**신규.** `@EnableResilientMethods` + `@Retryable` 또는 `RetryTemplate`. 기본은 실패 후 최대 3회, 1초 지연. `includes`로 timeout/`ResourceAccessException`만, `excludes`로 4xx·429를 빼는 식으로 GitHub에 맞출 수 있다. 멱등 GET에는 맞지만 Rate Limit과 호출 비용을 키운다. D-006대로 실제 실패를 관측한 뒤에만.
+**신규.** `RetryTemplate` + `RetryPolicy`(maxRetries=1, delay 50ms). timeout과 GitHub 5xx만 재시도하고 4xx·429·404·연결 실패는 제외한다. 오래된 캐시가 있으면 재시도하지 않는다. 시도마다 `developer.github.calls`를 남긴다. `@Retryable`/`@EnableResilientMethods`는 같은 정책을 애노테이션으로 옮길 때 재검토한다.
 
 공식: [Framework 7 Resilience](https://docs.spring.io/spring-framework/reference/7.0/core/resilience.html).
 
