@@ -2,7 +2,8 @@ package com.example.developeractivity.developer;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
+import org.junit.jupiter.api.BeforeEach;
+import io.micrometer.tracing.Tracer;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
@@ -32,9 +33,12 @@ class DeveloperServiceTests {
 	@Mock
 	private DeveloperCache cache;
 
-	@InjectMocks
 	private DeveloperService developerService;
 
+	@BeforeEach
+	void setUp() {
+		developerService = new DeveloperService(gitHubClient, cache, null, Tracer.NOOP);
+	}
 	@Test
 	void mapsGitHubUserToDeveloperProfile() {
 		GitHubUserResponse user = new GitHubUserResponse(

@@ -74,10 +74,12 @@ Boot 4는 Jackson 3를 기본 JSON 라이브러리로 쓴다. 패키지/그룹�
 | ProblemDetail 오류 본문 | **이전부터** (Framework 6) | [`DeveloperExceptionHandler.java`](../src/main/java/com/example/developeractivity/developer/DeveloperExceptionHandler.java) |
 | Caffeine 메모리 캐시 + stale fallback | 라이브러리 직접 사용. Spring Cache starter 아님 | [`DeveloperCache.java`](../src/main/java/com/example/developeractivity/developer/DeveloperCache.java) |
 | Actuator health/metrics + Prometheus | **이전부터** | `spring-boot-starter-actuator`, `micrometer-registry-prometheus` |
+| OpenTelemetry span (cache/outcome/attempt) | Boot 4 **신규 starter** | `spring-boot-starter-opentelemetry`, [`DeveloperService.java`](../src/main/java/com/example/developeractivity/developer/DeveloperService.java) |
 | Java 21 | Boot 4 기준선(17–25) 안 | `java { toolchain { languageVersion = 21 } }` |
 | Boot 4 테스트 패키지 | 모듈화로 패키지 이동 | `@WebMvcTest` → `org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest` |
+| RestTestClient로 우리 서버 테스트 | Framework 7 **신규** | [`DeveloperControllerTests.java`](../src/test/java/com/example/developeractivity/developer/DeveloperControllerTests.java), [`PrometheusEndpointTests.java`](../src/test/java/com/example/developeractivity/developer/PrometheusEndpointTests.java) |
 
-이미 쓰는 Boot 4 경로: `@ImportHttpServices`, `spring.http.serviceclient.github.base-url`, Framework 7 `RetryTemplate`(D-009). 아직 안 쓰는 것: API versioning, OpenTelemetry starter, JSpecify/`@NullMarked`, `RestTestClient`, `InetAddressFilter`.
+이미 쓰는 Boot 4 경로: `@ImportHttpServices`, `spring.http.serviceclient.github.base-url`, Framework 7 `RetryTemplate`(D-009), OpenTelemetry starter(D-010), `RestTestClient`. 아직 안 쓰는 것: API versioning, JSpecify/`@NullMarked`, `InetAddressFilter`.
 
 ---
 
@@ -107,15 +109,15 @@ spring.http.serviceclient.github.read-timeout=5s
 
 공식: [Framework 7 Resilience](https://docs.spring.io/spring-framework/reference/7.0/core/resilience.html).
 
-### 3. OpenTelemetry starter — 관측 다음 단계
+### 3. OpenTelemetry starter — 적용됨 (D-010)
 
-**신규 starter (Boot 4.0).** `spring-boot-starter-opentelemetry`가 OTLP로 메트릭·트레이스를 보낸다. 4.1은 env var 매핑, sampler/limits, exemplars, SSL bundle, `management.opentelemetry.enabled`. 지금 Prometheus 스크랩만 있으므로, GitHub 호출 span을 보려면 이쪽이 자연스러운 확장이다. Collector 없이는 체감이 약하다.
+**신규 starter (Boot 4.0).** `spring-boot-starter-opentelemetry`로 GitHub 조회 한 번에 span을 남긴다. 조회 span은 `cache=hit|miss|stale`과 `github.outcome`을 붙이고, 바깥 호출은 시도마다 자식 span이다. 신선한 저장 적중은 바깥 호출 span을 만들지 않는다. 숫자는 Prometheus에 두고, 흐름은 OTLP로 Jaeger에 보낸다. 메트릭을 트레이스로 대체하지 않는다.
 
 공식: [Boot 4.1 Observability — OpenTelemetry](https://docs.spring.io/spring-boot/4.1/reference/actuator/observability.html#actuator.observability.opentelemetry).
 
-### 4. `RestTestClient` — 테스트 정합
+### 4. `RestTestClient` — 적용됨
 
-**신규 (Framework 7, Boot 4 자동설정).** 컨트롤러는 MockMvc, 클라이언트는 `MockRestServiceServer`다. `RestTestClient`는 `RestClient`와 같은 플루언트 API로 MockMvc·랜덤 포트 서버를 친다. HTTP Interface 테스트를 클라이언트 API로 통일할 때 연습 가치가 있다. 회복력 로직 자체는 바꾸지 않는다.
+**신규 (Framework 7, Boot 4 자동설정).** 우리 서버를 치는 테스트는 `RestTestClient`다. 컨트롤러 슬라이스와 timeout 통합은 MockMvc에 묶고, Prometheus 스크랩은 랜덤 포트 서버에 묶는다. GitHub로 나가는 흉내(`MockRestServiceServer`)는 그대로 둔다. 회복력 로직과 공개 API는 바꾸지 않는다.
 
 ### 5. JSpecify + NullAway — 품질, 회복력은 아님
 
