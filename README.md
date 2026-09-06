@@ -28,8 +28,9 @@ GET /developers/{username}/activity-summary
 - 한도를 깎지 않고 같은 조회를 되풀이하려면? (캐시·ETag)
 - 한도를 넘기면 호출자에게 어떻게 알리는가? (`429`)
 - 캐시 적중·스테일·실제 호출을 어떻게 보는가? (Actuator + Prometheus)
+- timeout·5xx는 한 번만 다시 치는가? (오래된 값이 있으면 바로 그 값)
 
-아직 안 한 것: API 버전, 재시도, 두 번째 Provider, Redis/DB, OpenTelemetry.
+아직 안 한 것: API 버전, 두 번째 Provider, Redis/DB, OpenTelemetry.
 
 ## 구조
 
@@ -45,7 +46,7 @@ flowchart LR
 
 **현재:** Java 21, Spring Boot 4.1.0, Web MVC, HTTP Interface / RestClient, Jackson 3, Bean Validation, Caffeine, Actuator, Micrometer, Prometheus registry, Lombok, Gradle 9.5.1, JUnit.
 
-**필요할 때만:** API 버전, `@Retryable`, OpenTelemetry, WireMock, Testcontainers, Redis, PostgreSQL.
+**필요할 때만:** API 버전, OpenTelemetry, WireMock, Testcontainers, Redis, PostgreSQL.
 
 ## 개발 단계
 
@@ -57,7 +58,8 @@ flowchart LR
 6. **완료:** Micrometer 지표와 `/actuator/metrics`
 7. **완료:** `/actuator/prometheus`와 로컬 Prometheus compose
 8. **완료:** 활동 목록과 30일 요약
-9. 보류: API 버전, 재시도, 추가 Provider — 지표가 필요를 보여 줄 때
+9. **완료:** GET 재시도 (timeout·5xx 한 번, 4xx·429 제외)
+10. 보류: API 버전, 추가 Provider, OpenTelemetry — 지표가 필요를 보여 줄 때
 
 ## 실행
 

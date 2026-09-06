@@ -2,8 +2,11 @@ package com.example.developeractivity.developer;
 
 import lombok.RequiredArgsConstructor;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.core.retry.RetryPolicy;
+import org.springframework.core.retry.RetryTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 
@@ -25,96 +28,43 @@ class DeveloperService {
 	private final GitHubClient gitHubClient;
 	private final DeveloperCache cache;
 	private final MeterRegistry meterRegistry;
+	private final RetryTemplate gitHubGetRetry = new RetryTemplate(
+			RetryPolicy.builder()
+					.maxRetries(1)
+					.delay(Duration.ofMillis(50))
+					.includes(GitHubTimeoutException.class, GitHubUnavailableException.class)
+					.predicate(DeveloperService::isRetryableFailure)
+					.build()
+	);
 
 	DeveloperProfile getProfile(String username) {
-		String key = "profile:" + username;
-		DeveloperProfile fresh = cache == null ? null : (DeveloperProfile) cache.fresh(key);
-		if (fresh != null) {
-			countHit();
-			return fresh;
-		}
-		try {
-			DeveloperProfile profile = callGitHub(username, () -> DeveloperProfile.from(gitHubClient.getUser(username)));
-			if (cache != null) {
-				cache.put(key, profile);
-			}
-			return profile;
-		} catch (RuntimeException exception) {
-			DeveloperProfile stale = cache == null ? null : (DeveloperProfile) cache.stale(key);
-			if (stale != null && isUpstreamFailure(exception)) {
-				countStale();
-				return stale;
-			}
-			throw exception;
-		}
+		return load(
+				"profile:" + username,
+				username,
+				() -> DeveloperProfile.from(gitHubClient.getUser(username))
+		);
 	}
 
 	List<DeveloperRepository> getRepositories(String username, int page, int size) {
-		String key = "repositories:" + username + ":" + page + ":" + size;
-		@SuppressWarnings("unchecked")
-		List<DeveloperRepository> fresh = cache == null ? null : (List<DeveloperRepository>) cache.fresh(key);
-		if (fresh != null) {
-			countHit();
-			return fresh;
-		}
-		try {
-			List<DeveloperRepository> repositories = callGitHub(
-					username,
-					() -> gitHubClient.getRepositories(username, page, size, "updated", "desc")
-							.stream()
-							.map(DeveloperRepository::from)
-							.toList()
-			);
-			if (cache != null) {
-				cache.put(key, repositories);
-			}
-			return repositories;
-		} catch (RuntimeException exception) {
-			@SuppressWarnings("unchecked")
-			List<DeveloperRepository> stale = cache == null
-					? null
-					: (List<DeveloperRepository>) cache.stale(key);
-			if (stale != null && isUpstreamFailure(exception)) {
-				countStale();
-				return stale;
-			}
-			throw exception;
-		}
+		return load(
+				"repositories:" + username + ":" + page + ":" + size,
+				username,
+				() -> gitHubClient.getRepositories(username, page, size, "updated", "desc")
+						.stream()
+						.map(DeveloperRepository::from)
+						.toList()
+		);
 	}
 
 	List<DeveloperActivity> getActivities(String username, int page, int size) {
-		String key = "activities:" + username + ":" + page + ":" + size;
-		@SuppressWarnings("unchecked")
-		List<DeveloperActivity> fresh = cache == null
-				? null
-				: (List<DeveloperActivity>) cache.fresh(key);
-		if (fresh != null) {
-			countHit();
-			return fresh;
-		}
-		try {
-			List<DeveloperActivity> activities = callGitHub(
-					username,
-					() -> gitHubClient.getEvents(username, page, size)
-							.stream()
-							.map(DeveloperActivity::from)
-							.toList()
-			);
-			if (cache != null) {
-				cache.put(key, activities);
-			}
-			return activities;
-		} catch (RuntimeException exception) {
-			@SuppressWarnings("unchecked")
-			List<DeveloperActivity> stale = cache == null
-					? null
-					: (List<DeveloperActivity>) cache.stale(key);
-			if (stale != null && isUpstreamFailure(exception)) {
-				countStale();
-				return stale;
-			}
-			throw exception;
-		}
+		return load(
+				"activities:" + username + ":" + page + ":" + size,
+				username,
+				() -> gitHubClient.getEvents(username, page, size)
+						.stream()
+						.map(DeveloperActivity::from)
+						.toList()
+		);
 	}
 
 	DeveloperActivitySummary getActivitySummary(String username) {
@@ -144,6 +94,32 @@ class DeveloperService {
 		return new DeveloperActivitySummary(activities.size(), typeCounts, repositories);
 	}
 
+	@SuppressWarnings("unchecked")
+	private <T> T load(String key, String username, Supplier<T> request) {
+		T fresh = cache == null ? null : (T) cache.fresh(key);
+		if (fresh != null) {
+			countHit();
+			return fresh;
+		}
+		boolean hasStale = cache != null && cache.stale(key) != null;
+		try {
+			T value = hasStale
+					? callGitHub(username, request)
+					: gitHubGetRetry.invoke(() -> callGitHub(username, request));
+			if (cache != null) {
+				cache.put(key, value);
+			}
+			return value;
+		} catch (RuntimeException exception) {
+			T stale = cache == null ? null : (T) cache.stale(key);
+			if (stale != null && isUpstreamFailure(exception)) {
+				countStale();
+				return stale;
+			}
+			throw exception;
+		}
+	}
+
 	private <T> T callGitHub(String username, Supplier<T> request) {
 		Instant started = Instant.now();
 		String outcome = "success";
@@ -157,6 +133,9 @@ class DeveloperService {
 				outcome = "rate_limited";
 				throw new GitHubRateLimitException(exception.getResponseHeaders());
 			}
+			outcome = "unavailable";
+			throw new GitHubUnavailableException(exception);
+		} catch (HttpServerErrorException exception) {
 			outcome = "unavailable";
 			throw new GitHubUnavailableException(exception);
 		} catch (ResourceAccessException exception) {
@@ -178,6 +157,14 @@ class DeveloperService {
 		return exception instanceof GitHubTimeoutException
 				|| exception instanceof GitHubUnavailableException
 				|| exception instanceof GitHubRateLimitException;
+	}
+
+	private static boolean isRetryableFailure(Throwable exception) {
+		if (exception instanceof GitHubTimeoutException) {
+			return true;
+		}
+		return exception instanceof GitHubUnavailableException
+				&& exception.getCause() instanceof HttpServerErrorException;
 	}
 
 	private void countHit() {
